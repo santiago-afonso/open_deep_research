@@ -2,14 +2,15 @@
 
 import httpx
 import json
+import time
 from typing import Any, Dict, List, Optional, Iterator
 from pydantic import Field
 
 from langchain_core.language_models.chat_models import SimpleChatModel
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, AIMessageChunk
 from langchain_core.outputs import ChatResult, ChatGeneration, ChatGenerationChunk
-from loguru import logger
 
+from .logging_config import logger
 from .wbg_auth_manager import WBGAuthManager
 
 
@@ -60,17 +61,36 @@ class WBGChatModel(SimpleChatModel):
 
     def _call(self, messages: List[BaseMessage], stop: Optional[List[str]] = None, **kwargs: Any) -> str:
         """Synchronous call method."""
+        logger.info("=== WBG LLM API Request Starting ===")
+        start_time = time.time()
+        
+        # Extract model name from URL
+        model_name = "o4-mini" if "o4-mini" in self.api_url else "gpt-4.1"
+        logger.info(f"Model: {model_name}")
+        logger.info(f"Number of messages: {len(messages)}")
+        
+        # Log message details
+        for i, msg in enumerate(messages):
+            msg_type = type(msg).__name__
+            msg_preview = msg.content[:100] + "..." if len(msg.content) > 100 else msg.content
+            logger.info(f"Message {i+1} ({msg_type}): {msg_preview}")
+        
         # Get a valid Bearer Token
         try:
+            logger.debug("Obtaining authentication token...")
             bearer_token = self.auth_manager.get_bearer_token()
+            logger.debug("Authentication successful")
         except Exception as e:
+            logger.error(f"Authentication failed: {str(e)}")
+            logger.exception("Full authentication error:")
             raise WBGAPIError(f"Authentication failed: {e}") from e
 
         # Prepare headers
         headers = {
-            "Authorization": f"Bearer {bearer_token}",
+            "Authorization": f"Bearer {bearer_token[:10]}...{bearer_token[-10:]}",  # Log partial token for security
             "Content-Type": "application/json",
         }
+        logger.debug(f"Request headers prepared (token partially hidden)")
 
         # Prepare payload with model-specific parameters
         payload = {
@@ -82,37 +102,100 @@ class WBGChatModel(SimpleChatModel):
             # Handle different parameter names for max tokens
             if "o4-mini" in self.api_url:
                 payload["max_completion_tokens"] = self.max_tokens
+                logger.info(f"Max completion tokens: {self.max_tokens}")
             else:
                 payload["max_tokens"] = self.max_tokens
+                logger.info(f"Max tokens: {self.max_tokens}")
 
         if self.temperature is not None:
             payload["temperature"] = self.temperature
+            logger.info(f"Temperature: {self.temperature}")
         if self.top_p is not None:
             payload["top_p"] = self.top_p
+            logger.info(f"Top-p: {self.top_p}")
         if self.reasoning_effort is not None:
             payload["reasoning_effort"] = self.reasoning_effort
+            logger.info(f"Reasoning effort: {self.reasoning_effort}")
 
-        logger.debug(f"Calling WBG API at {self.api_url}")
-        logger.debug(f"Payload: {json.dumps(payload, indent=2)}")
+        logger.info(f"Sending request to: {self.api_url}")
+        logger.debug(f"Full request payload:\n{json.dumps(payload, indent=2)}")
         
         # Make the API call
         try:
+            logger.info("Making API request...")
+            api_start_time = time.time()
+            
             response = self.http_client.post(
                 self.api_url, 
                 json=payload, 
-                headers=headers, 
+                headers={**headers, "Authorization": f"Bearer {bearer_token}"},  # Use full token for actual request
                 timeout=180.0
             )
+            
+            api_duration = time.time() - api_start_time
+            logger.info(f"API request completed in {api_duration:.2f} seconds")
+            logger.info(f"Response status code: {response.status_code}")
+            logger.debug(f"Response headers: {dict(response.headers)}")
+            
             response.raise_for_status()
+            
         except httpx.HTTPStatusError as e:
             err_text = e.response.text
+            logger.error(f"=== WBG LLM API Error ===")
+            logger.error(f"Status code: {e.response.status_code}")
+            logger.error(f"Error response body:\n{err_text}")
+            
+            # Try to parse error as JSON for better formatting
+            try:
+                error_json = json.loads(err_text)
+                logger.error(f"Parsed error details:\n{json.dumps(error_json, indent=2)}")
+            except:
+                logger.error("Could not parse error response as JSON")
+            
+            logger.error(f"Request URL: {self.api_url}")
+            logger.error(f"Request payload:\n{json.dumps(payload, indent=2)}")
             raise WBGAPIError(f"API returned status {e.response.status_code}: {err_text}") from e
+            
+        except httpx.TimeoutException as e:
+            logger.error(f"=== WBG LLM API Timeout ===")
+            logger.error(f"Request timed out after 180 seconds")
+            logger.error(f"Request URL: {self.api_url}")
+            raise WBGAPIError(f"API request timed out: {e}") from e
+            
         except Exception as e:
+            logger.error(f"=== WBG LLM API Unexpected Error ===")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error message: {str(e)}")
+            logger.exception("Full error traceback:")
+            logger.error(f"Request URL: {self.api_url}")
+            logger.error(f"Request payload:\n{json.dumps(payload, indent=2)}")
             raise WBGAPIError(f"An unexpected error occurred during API call: {e}") from e
 
         # Process the response
-        response_data = response.json()
-        content = response_data["choices"][0]["message"]["content"]
+        try:
+            response_data = response.json()
+            logger.debug(f"Response JSON structure: {list(response_data.keys())}")
+            
+            # Log token usage if available
+            if "usage" in response_data:
+                usage = response_data["usage"]
+                logger.info(f"Token usage - Prompt: {usage.get('prompt_tokens', 'N/A')}, "
+                           f"Completion: {usage.get('completion_tokens', 'N/A')}, "
+                           f"Total: {usage.get('total_tokens', 'N/A')}")
+            
+            content = response_data["choices"][0]["message"]["content"]
+            content_preview = content[:200] + "..." if len(content) > 200 else content
+            logger.info(f"Response preview: {content_preview}")
+            logger.info(f"Response length: {len(content)} characters")
+            
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to parse API response")
+            logger.error(f"Response text: {response.text}")
+            logger.exception("Parse error:")
+            raise WBGAPIError(f"Failed to parse API response: {e}") from e
+        
+        total_duration = time.time() - start_time
+        logger.info(f"=== WBG LLM API Request Completed in {total_duration:.2f} seconds ===")
         
         return content
 

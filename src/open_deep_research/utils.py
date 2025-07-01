@@ -1516,18 +1516,27 @@ async def wbg_google_search_async(search_queries: List[str], num_results: int = 
         List[dict]: List of search responses in standard format
     """
     from open_deep_research.wbg_auth_manager import WBGAuthManager
+    from open_deep_research.logging_config import logger
+    
+    logger.info(f"=== WBG Google Search Starting ===")
+    logger.info(f"Number of queries: {len(search_queries)}")
+    logger.info(f"Results per query: {num_results}")
     
     # Initialize WBG auth manager
     auth_manager = WBGAuthManager()
     
     # WBG Google Search endpoint
     endpoint = "https://azapimdev.worldbank.org/conversationalai/platform/google_search/"
+    logger.info(f"Endpoint: {endpoint}")
     
     # Process queries concurrently
     async def search_single_query(query):
+        logger.info(f"\n--- Processing Query: '{query}' ---")
         try:
             # Get bearer token for authentication
+            logger.debug("Acquiring bearer token...")
             bearer_token = auth_manager.get_bearer_token()
+            logger.debug("Bearer token acquired successfully")
             
             # Prepare headers
             headers = {
@@ -1541,9 +1550,10 @@ async def wbg_google_search_async(search_queries: List[str], num_results: int = 
                 "num_results": num_results
             }
             
-            logger.info(f"Searching WBG Google for: '{query}'")
+            logger.info(f"Request payload: {json.dumps(payload, indent=2)}")
             
             # Make the API request
+            logger.info(f"Sending POST request to WBG Google Search API...")
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     endpoint,
@@ -1551,14 +1561,30 @@ async def wbg_google_search_async(search_queries: List[str], num_results: int = 
                     headers=headers,
                     timeout=30.0
                 )
+                
+                # Log response details
+                logger.info(f"Response status code: {response.status_code}")
+                logger.debug(f"Response headers: {dict(response.headers)}")
+                
+                if response.status_code != 200:
+                    logger.error(f"Non-200 status code received: {response.status_code}")
+                    logger.error(f"Response body: {response.text}")
+                
                 response.raise_for_status()
                 
             # Parse the response
             search_results = response.json()
+            logger.info(f"Successfully received {len(search_results)} results")
+            logger.debug(f"Raw response: {json.dumps(search_results, indent=2)}")
             
             # Format results to match expected structure
             formatted_results = []
-            for result in search_results:
+            for idx, result in enumerate(search_results):
+                logger.debug(f"Processing result {idx + 1}:")
+                logger.debug(f"  Title: {result.get('title', 'N/A')}")
+                logger.debug(f"  URL: {result.get('link', 'N/A')}")
+                logger.debug(f"  Snippet: {result.get('snippet', 'N/A')[:100]}...")
+                
                 formatted_result = {
                     "title": result.get("title", ""),
                     "url": result.get("link", ""),
@@ -1568,21 +1594,42 @@ async def wbg_google_search_async(search_queries: List[str], num_results: int = 
                 }
                 formatted_results.append(formatted_result)
             
+            logger.info(f"✓ Query '{query}' completed successfully with {len(formatted_results)} results")
+            
             return {
                 "query": query,
                 "results": formatted_results
             }
             
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error for query '{query}':")
+            logger.error(f"  Status Code: {e.response.status_code}")
+            logger.error(f"  Response Body: {e.response.text}")
+            logger.error(f"  Request URL: {e.request.url}")
+            logger.error(f"  Full exception: {str(e)}")
+            return {
+                "query": query,
+                "results": []
+            }
         except Exception as e:
-            logger.error(f"Error searching WBG Google for '{query}': {str(e)}")
+            logger.error(f"Unexpected error for query '{query}':")
+            logger.error(f"  Error Type: {type(e).__name__}")
+            logger.error(f"  Error Message: {str(e)}")
+            logger.exception("Full traceback:")
             return {
                 "query": query,
                 "results": []
             }
     
     # Execute searches concurrently
+    logger.info(f"\nExecuting {len(search_queries)} searches concurrently...")
     search_tasks = [search_single_query(query) for query in search_queries]
     search_responses = await asyncio.gather(*search_tasks)
+    
+    # Log summary
+    logger.info(f"\n=== WBG Google Search Complete ===")
+    successful_searches = sum(1 for r in search_responses if r["results"])
+    logger.info(f"Successful searches: {successful_searches}/{len(search_queries)}")
     
     return search_responses
 
@@ -1601,33 +1648,81 @@ async def select_and_execute_search(search_api: str, query_list: list[str], para
     Raises:
         ValueError: If an unsupported search API is specified
     """
-    if search_api == "tavily":
-        # Tavily search tool used with both workflow and agent 
-        # and returns a formatted source string
-        return await tavily_search.ainvoke({'queries': query_list, **params_to_pass})
-    elif search_api == "duckduckgo":
-        # DuckDuckGo search tool used with both workflow and agent 
-        return await duckduckgo_search.ainvoke({'search_queries': query_list})
-    elif search_api == "perplexity":
-        search_results = perplexity_search(query_list, **params_to_pass)
-    elif search_api == "exa":
-        search_results = await exa_search(query_list, **params_to_pass)
-    elif search_api == "arxiv":
-        search_results = await arxiv_search_async(query_list, **params_to_pass)
-    elif search_api == "pubmed":
-        search_results = await pubmed_search_async(query_list, **params_to_pass)
-    elif search_api == "linkup":
-        search_results = await linkup_search(query_list, **params_to_pass)
-    elif search_api == "googlesearch":
-        search_results = await google_search_async(query_list, **params_to_pass)
-    elif search_api == "azureaisearch":
-        search_results = await azureaisearch_search_async(query_list, **params_to_pass)
-    elif search_api == "wbg_google":
-        search_results = await wbg_google_search_async(query_list, **params_to_pass)
-    else:
-        raise ValueError(f"Unsupported search API: {search_api}")
-
-    return deduplicate_and_format_sources(search_results, max_tokens_per_source=4000, deduplication_strategy="keep_first")
+    from open_deep_research.logging_config import logger
+    
+    logger.info("=== Search API Selection ===")
+    logger.info(f"Selected API: {search_api}")
+    logger.info(f"Number of queries: {len(query_list)}")
+    logger.info(f"Queries: {query_list}")
+    if params_to_pass:
+        logger.info(f"Additional parameters: {params_to_pass}")
+    
+    start_time = time.time()
+    
+    try:
+        if search_api == "tavily":
+            # Tavily search tool used with both workflow and agent 
+            # and returns a formatted source string
+            logger.info("Executing Tavily search...")
+            result = await tavily_search.ainvoke({'queries': query_list, **params_to_pass})
+            logger.info(f"Tavily search completed in {time.time() - start_time:.2f} seconds")
+            return result
+        elif search_api == "duckduckgo":
+            # DuckDuckGo search tool used with both workflow and agent 
+            logger.info("Executing DuckDuckGo search...")
+            result = await duckduckgo_search.ainvoke({'search_queries': query_list})
+            logger.info(f"DuckDuckGo search completed in {time.time() - start_time:.2f} seconds")
+            return result
+        elif search_api == "perplexity":
+            logger.info("Executing Perplexity search...")
+            search_results = perplexity_search(query_list, **params_to_pass)
+        elif search_api == "exa":
+            logger.info("Executing Exa search...")
+            search_results = await exa_search(query_list, **params_to_pass)
+        elif search_api == "arxiv":
+            logger.info("Executing ArXiv search...")
+            search_results = await arxiv_search_async(query_list, **params_to_pass)
+        elif search_api == "pubmed":
+            logger.info("Executing PubMed search...")
+            search_results = await pubmed_search_async(query_list, **params_to_pass)
+        elif search_api == "linkup":
+            logger.info("Executing Linkup search...")
+            search_results = await linkup_search(query_list, **params_to_pass)
+        elif search_api == "googlesearch":
+            logger.info("Executing Google search...")
+            search_results = await google_search_async(query_list, **params_to_pass)
+        elif search_api == "azureaisearch":
+            logger.info("Executing Azure AI search...")
+            search_results = await azureaisearch_search_async(query_list, **params_to_pass)
+        elif search_api == "wbg_google":
+            logger.info("Executing WBG Google search...")
+            search_results = await wbg_google_search_async(query_list, **params_to_pass)
+        else:
+            logger.error(f"Unsupported search API: {search_api}")
+            raise ValueError(f"Unsupported search API: {search_api}")
+    
+        # Log search completion
+        duration = time.time() - start_time
+        logger.info(f"{search_api} search completed in {duration:.2f} seconds")
+        
+        # Format results
+        logger.info("Formatting and deduplicating search results...")
+        formatted_results = deduplicate_and_format_sources(search_results, max_tokens_per_source=4000, deduplication_strategy="keep_first")
+        
+        # Log result summary
+        result_count = formatted_results.count("Title:")
+        logger.info(f"Search complete. Found {result_count} unique results")
+        logger.info(f"Total execution time: {time.time() - start_time:.2f} seconds")
+        
+        return formatted_results
+        
+    except Exception as e:
+        logger.error(f"Error during {search_api} search execution:")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        logger.exception("Full traceback:")
+        logger.error(f"Failed after {time.time() - start_time:.2f} seconds")
+        raise
 
 
 WBG_GOOGLE_SEARCH_DESCRIPTION = (

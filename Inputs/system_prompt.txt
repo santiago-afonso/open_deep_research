@@ -4,7 +4,7 @@ This version incorporates your specifications for handling synonyms, source time
 
 ---
 
-### **System Prompt v2.0: The Autonomous "Deep Research" Tax Policy Analyst**
+### **System Prompt: The Autonomous "Deep Research" Tax Policy Analyst**
 
 **Agent Persona & Mission:**
 

@@ -3,7 +3,6 @@ import warnings
 from typing import Annotated, List, Literal, TypedDict, cast
 
 from dotenv import load_dotenv
-from langchain_community.chat_models import init_chat_model
 from open_deep_research.api_adapter import init_authenticated_chat_model
 from open_deep_research.auth import AuthManager
 

@@ -2,7 +2,7 @@
 
 import os
 from typing import Dict, Optional, Any
-from loguru import logger
+from .logging_config import logger
 
 
 class AuthManager:
@@ -36,15 +36,23 @@ class AuthManager:
                      If not provided, will use environment variables.
         """
         self.api_keys = api_keys or {}
+        logger.info("=== AuthManager Initialized ===")
+        if self.api_keys:
+            logger.info(f"Configured providers: {list(self.api_keys.keys())}")
+        else:
+            logger.info("No API keys provided, will use environment variables")
         self._validate_keys()
     
     def _validate_keys(self):
         """Validate that provided API keys are non-empty strings."""
         for provider, key in self.api_keys.items():
             if key and not isinstance(key, str):
+                logger.error(f"Invalid API key type for {provider}: {type(key)}")
                 raise ValueError(f"API key for {provider} must be a string")
             if key and not key.strip():
+                logger.error(f"Empty API key provided for {provider}")
                 raise ValueError(f"API key for {provider} cannot be empty")
+            logger.debug(f"Validated API key for {provider}")
     
     def get_api_key(self, provider: str) -> Optional[str]:
         """
@@ -59,8 +67,11 @@ class AuthManager:
         Returns:
             The API key if found, None otherwise
         """
+        logger.debug(f"Getting API key for provider: {provider}")
+        
         # First check if we have a configured key
         if provider in self.api_keys:
+            logger.debug(f"Using configured API key for {provider}")
             return self.api_keys[provider]
         
         # Fall back to environment variables
@@ -68,18 +79,36 @@ class AuthManager:
         
         if env_var is None:
             # Provider doesn't need authentication (e.g., ollama)
+            logger.debug(f"Provider {provider} doesn't require authentication")
             return None
         
         if isinstance(env_var, list):
             # Special case for providers that need multiple env vars (e.g., bedrock)
+            logger.debug(f"Provider {provider} requires multiple environment variables: {env_var}")
             keys = {}
             for var in env_var:
                 value = os.getenv(var)
                 if value:
                     keys[var] = value
-            return keys if keys else None
+                    logger.debug(f"Found environment variable {var}")
+                else:
+                    logger.debug(f"Environment variable {var} not set")
+            
+            if keys:
+                logger.info(f"Found {len(keys)} of {len(env_var)} required environment variables for {provider}")
+                return keys
+            else:
+                logger.warning(f"No environment variables found for {provider}")
+                return None
         
-        return os.getenv(env_var)
+        # Single environment variable
+        value = os.getenv(env_var)
+        if value:
+            logger.info(f"Found API key for {provider} in environment variable {env_var}")
+        else:
+            logger.debug(f"Environment variable {env_var} not set for {provider}")
+        
+        return value
     
     def set_api_key(self, provider: str, api_key: str):
         """
@@ -89,9 +118,14 @@ class AuthManager:
             provider: The provider name
             api_key: The API key to set
         """
+        logger.info(f"Setting API key for provider: {provider}")
+        
         if not api_key or not api_key.strip():
+            logger.error(f"Attempted to set empty API key for {provider}")
             raise ValueError(f"API key for {provider} cannot be empty")
+        
         self.api_keys[provider] = api_key
+        logger.info(f"Successfully set API key for {provider}")
     
     def get_auth_kwargs(self, provider: str) -> Dict[str, Any]:
         """
