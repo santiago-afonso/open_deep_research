@@ -1,7 +1,9 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
-from langchain.chat_models import init_chat_model
+from langchain_community.chat_models import init_chat_model
+from open_deep_research.api_adapter import init_authenticated_chat_model
+from open_deep_research.auth import AuthManager
 
 # Load environment variables
 load_dotenv()
@@ -39,6 +41,12 @@ from open_deep_research.utils import (
     select_and_execute_search,
 )
 
+
+def _get_auth_manager_from_config(config: RunnableConfig) -> Optional[AuthManager]:
+    """Helper to create AuthManager from configuration."""
+    configurable = WorkflowConfiguration.from_runnable_config(config)
+    return AuthManager(api_keys=configurable.api_keys) if configurable.api_keys else None
+
 ## Nodes -- 
 
 async def generate_report_plan(state: ReportState, config: RunnableConfig):
@@ -68,6 +76,10 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
 
     # Get configuration
     configurable = WorkflowConfiguration.from_runnable_config(config)
+    
+    # Create auth manager if API keys are configured
+    auth_manager = AuthManager(api_keys=configurable.api_keys) if configurable.api_keys else None
+    
     report_structure = configurable.report_structure
     number_of_queries = configurable.number_of_queries
     search_api = get_config_value(configurable.search_api)
@@ -82,7 +94,7 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
-    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs) 
+    writer_model = init_authenticated_chat_model(model=writer_model_name, model_provider=writer_provider, auth_manager=auth_manager, config=config, model_kwargs=writer_model_kwargs) 
     structured_llm = writer_model.with_structured_output(Queries)
 
     # Format system instructions
@@ -118,15 +130,19 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
     # Run the planner
     if planner_model == "claude-3-7-sonnet-latest":
         # Allocate a thinking budget for claude-3-7-sonnet-latest as the planner model
-        planner_llm = init_chat_model(model=planner_model, 
+        planner_llm = init_authenticated_chat_model(model=planner_model, 
                                       model_provider=planner_provider, 
+                                      auth_manager=auth_manager,
+                                      config=config,
                                       max_tokens=20_000, 
                                       thinking={"type": "enabled", "budget_tokens": 16_000})
 
     else:
         # With other models, thinking tokens are not specifically allocated
-        planner_llm = init_chat_model(model=planner_model, 
+        planner_llm = init_authenticated_chat_model(model=planner_model, 
                                       model_provider=planner_provider,
+                                      auth_manager=auth_manager,
+                                      config=config,
                                       model_kwargs=planner_model_kwargs)
     
     # Generate the report sections
@@ -209,13 +225,14 @@ async def generate_queries(state: SectionState, config: RunnableConfig):
 
     # Get configuration
     configurable = WorkflowConfiguration.from_runnable_config(config)
+    auth_manager = _get_auth_manager_from_config(config)
     number_of_queries = configurable.number_of_queries
 
     # Generate queries 
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
-    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs) 
+    writer_model = init_authenticated_chat_model(model=writer_model_name, model_provider=writer_provider, auth_manager=auth_manager, config=config, model_kwargs=writer_model_kwargs) 
     structured_llm = writer_model.with_structured_output(Queries)
 
     # Format system instructions
@@ -286,6 +303,7 @@ async def write_section(state: SectionState, config: RunnableConfig) -> Command[
 
     # Get configuration
     configurable = WorkflowConfiguration.from_runnable_config(config)
+    auth_manager = _get_auth_manager_from_config(config)
 
     # Format system instructions
     section_writer_inputs_formatted = section_writer_inputs.format(topic=topic, 
@@ -298,7 +316,7 @@ async def write_section(state: SectionState, config: RunnableConfig) -> Command[
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
-    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs) 
+    writer_model = init_authenticated_chat_model(model=writer_model_name, model_provider=writer_provider, auth_manager=auth_manager, config=config, model_kwargs=writer_model_kwargs) 
 
     section_content = await writer_model.ainvoke([SystemMessage(content=section_writer_instructions),
                                            HumanMessage(content=section_writer_inputs_formatted)])
@@ -323,13 +341,18 @@ async def write_section(state: SectionState, config: RunnableConfig) -> Command[
 
     if planner_model == "claude-3-7-sonnet-latest":
         # Allocate a thinking budget for claude-3-7-sonnet-latest as the planner model
-        reflection_model = init_chat_model(model=planner_model, 
+        reflection_model = init_authenticated_chat_model(model=planner_model, 
                                            model_provider=planner_provider, 
+                                           auth_manager=auth_manager,
+                                           config=config,
                                            max_tokens=20_000, 
                                            thinking={"type": "enabled", "budget_tokens": 16_000}).with_structured_output(Feedback)
     else:
-        reflection_model = init_chat_model(model=planner_model, 
-                                           model_provider=planner_provider, model_kwargs=planner_model_kwargs).with_structured_output(Feedback)
+        reflection_model = init_authenticated_chat_model(model=planner_model, 
+                                           model_provider=planner_provider, 
+                                           auth_manager=auth_manager,
+                                           config=config,
+                                           model_kwargs=planner_model_kwargs).with_structured_output(Feedback)
     # Generate feedback
     feedback = await reflection_model.ainvoke([SystemMessage(content=section_grader_instructions_formatted),
                                         HumanMessage(content=section_grader_message)])
@@ -364,6 +387,7 @@ async def write_final_sections(state: SectionState, config: RunnableConfig):
     """
     # Get configuration
     configurable = WorkflowConfiguration.from_runnable_config(config)
+    auth_manager = _get_auth_manager_from_config(config)
 
     # Get state 
     topic = state["topic"]
@@ -377,7 +401,7 @@ async def write_final_sections(state: SectionState, config: RunnableConfig):
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
-    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs) 
+    writer_model = init_authenticated_chat_model(model=writer_model_name, model_provider=writer_provider, auth_manager=auth_manager, config=config, model_kwargs=writer_model_kwargs) 
     
     section_content = await writer_model.ainvoke([SystemMessage(content=system_instructions),
                                            HumanMessage(content="Generate a report section based on the provided sources.")])

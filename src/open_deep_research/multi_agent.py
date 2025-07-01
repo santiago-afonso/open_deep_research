@@ -3,7 +3,9 @@ import warnings
 from typing import Annotated, List, Literal, TypedDict, cast
 
 from dotenv import load_dotenv
-from langchain.chat_models import init_chat_model
+from langchain_community.chat_models import init_chat_model
+from open_deep_research.api_adapter import init_authenticated_chat_model
+from open_deep_research.auth import AuthManager
 
 # Load environment variables
 load_dotenv()
@@ -21,6 +23,7 @@ from open_deep_research.utils import (
     get_config_value,
     get_today_str,
     tavily_search,
+    wbg_google_search,
 )
 
 
@@ -39,11 +42,13 @@ def get_search_tool(config: RunnableConfig):
         search_tool = tavily_search
     elif search_api.lower() == "duckduckgo":
         search_tool = duckduckgo_search
+    elif search_api.lower() == "wbg_google":
+        search_tool = wbg_google_search
     else:
         raise NotImplementedError(
             f"The search API '{search_api}' is not yet supported in the multi-agent implementation. "
-            f"Currently, only Tavily/DuckDuckGo/None is supported. Please use the graph-based implementation in "
-            f"src/open_deep_research/graph.py for other search APIs, or set search_api to 'tavily', 'duckduckgo', or 'none'."
+            f"Currently, only Tavily/DuckDuckGo/WBG Google/None is supported. Please use the graph-based implementation in "
+            f"src/open_deep_research/graph.py for other search APIs, or set search_api to 'tavily', 'duckduckgo', 'wbg_google', or 'none'."
         )
 
     tool_metadata = {**(search_tool.metadata or {}), "type": "search"}
@@ -195,9 +200,12 @@ async def supervisor(state: ReportState, config: RunnableConfig):
     # Get configuration
     configurable = MultiAgentConfiguration.from_runnable_config(config)
     supervisor_model = get_config_value(configurable.supervisor_model)
+    
+    # Create auth manager if API keys are configured
+    auth_manager = AuthManager(api_keys=configurable.api_keys) if configurable.api_keys else None
 
     # Initialize the model
-    llm = init_chat_model(model=supervisor_model)
+    llm = init_authenticated_chat_model(model=supervisor_model, auth_manager=auth_manager, config=config)
     
     # If sections have been completed, but we don't yet have the final report, then we need to initiate writing the introduction and conclusion
     if state.get("completed_sections") and not state.get("final_report"):
@@ -353,8 +361,11 @@ async def research_agent(state: SectionState, config: RunnableConfig):
     configurable = MultiAgentConfiguration.from_runnable_config(config)
     researcher_model = get_config_value(configurable.researcher_model)
     
+    # Create auth manager if API keys are configured
+    auth_manager = AuthManager(api_keys=configurable.api_keys) if configurable.api_keys else None
+    
     # Initialize the model
-    llm = init_chat_model(model=researcher_model)
+    llm = init_authenticated_chat_model(model=researcher_model, auth_manager=auth_manager, config=config)
 
     # Get tools based on configuration
     research_tool_list = await get_research_tools(config)

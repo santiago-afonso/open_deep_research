@@ -23,7 +23,9 @@ from duckduckgo_search import DDGS
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 from pydantic import BaseModel
-from langchain.chat_models import init_chat_model
+from langchain_community.chat_models import init_chat_model
+from open_deep_research.api_adapter import init_authenticated_chat_model
+from open_deep_research.auth import AuthManager
 from langchain.embeddings import init_embeddings
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -1401,6 +1403,9 @@ async def tavily_search(
         return None
 
     configurable = Configuration.from_runnable_config(config)
+    # Create auth manager if API keys are configured
+    auth_manager = AuthManager(api_keys=configurable.api_keys) if hasattr(configurable, 'api_keys') and configurable.api_keys else None
+    
     max_char_to_include = 30_000
     # TODO: share this behavior across all search implementations / tools
     if configurable.process_search_results == "summarize":
@@ -1409,9 +1414,10 @@ async def tavily_search(
         else:
             extra_kwargs = {}
 
-        summarization_model = init_chat_model(
+        summarization_model = init_authenticated_chat_model(
             model=configurable.summarization_model,
             model_provider=configurable.summarization_model_provider,
+            auth_manager=auth_manager,
             max_retries=configurable.max_structured_output_retries,
             **extra_kwargs
         )
@@ -1498,6 +1504,89 @@ async def azureaisearch_search(queries: List[str], max_results: int = 5, topic: 
         return "No valid search results found. Please try different search queries or use a different search API."
 
 
+async def wbg_google_search_async(search_queries: List[str], num_results: int = 5) -> List[dict]:
+    """
+    Performs web searches using the WBG Google Search API.
+    
+    Args:
+        search_queries (List[str]): List of search queries to process
+        num_results (int): Number of results to return per query (default: 5)
+        
+    Returns:
+        List[dict]: List of search responses in standard format
+    """
+    from open_deep_research.wbg_auth_manager import WBGAuthManager
+    
+    # Initialize WBG auth manager
+    auth_manager = WBGAuthManager()
+    
+    # WBG Google Search endpoint
+    endpoint = "https://azapimdev.worldbank.org/conversationalai/platform/google_search/"
+    
+    # Process queries concurrently
+    async def search_single_query(query):
+        try:
+            # Get bearer token for authentication
+            bearer_token = auth_manager.get_bearer_token()
+            
+            # Prepare headers
+            headers = {
+                "Authorization": f"Bearer {bearer_token}",
+                "Content-Type": "application/json"
+            }
+            
+            # Prepare payload
+            payload = {
+                "query": query,
+                "num_results": num_results
+            }
+            
+            logger.info(f"Searching WBG Google for: '{query}'")
+            
+            # Make the API request
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    endpoint,
+                    json=payload,
+                    headers=headers,
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                
+            # Parse the response
+            search_results = response.json()
+            
+            # Format results to match expected structure
+            formatted_results = []
+            for result in search_results:
+                formatted_result = {
+                    "title": result.get("title", ""),
+                    "url": result.get("link", ""),
+                    "content": result.get("snippet", ""),
+                    "score": 0.0,  # WBG API doesn't provide scores
+                    "raw_content": None  # WBG API doesn't provide raw content
+                }
+                formatted_results.append(formatted_result)
+            
+            return {
+                "query": query,
+                "results": formatted_results
+            }
+            
+        except Exception as e:
+            logger.error(f"Error searching WBG Google for '{query}': {str(e)}")
+            return {
+                "query": query,
+                "results": []
+            }
+    
+    # Execute searches concurrently
+    search_tasks = [search_single_query(query) for query in search_queries]
+    search_responses = await asyncio.gather(*search_tasks)
+    
+    return search_responses
+
+
 async def select_and_execute_search(search_api: str, query_list: list[str], params_to_pass: dict) -> str:
     """Select and execute the appropriate search API.
     
@@ -1533,9 +1622,40 @@ async def select_and_execute_search(search_api: str, query_list: list[str], para
         search_results = await google_search_async(query_list, **params_to_pass)
     elif search_api == "azureaisearch":
         search_results = await azureaisearch_search_async(query_list, **params_to_pass)
+    elif search_api == "wbg_google":
+        search_results = await wbg_google_search_async(query_list, **params_to_pass)
     else:
         raise ValueError(f"Unsupported search API: {search_api}")
 
+    return deduplicate_and_format_sources(search_results, max_tokens_per_source=4000, deduplication_strategy="keep_first")
+
+
+WBG_GOOGLE_SEARCH_DESCRIPTION = (
+    "World Bank Group's Google Search API for secure, high-quality web searches. "
+    "Ideal for research requiring reliable sources and current information. "
+    "Note: Do not include World Bank OU or classified information in queries."
+)
+
+@tool(description=WBG_GOOGLE_SEARCH_DESCRIPTION)
+async def wbg_google_search(
+    search_queries: List[str],
+    num_results: Annotated[int, InjectedToolArg] = 5,
+    config: RunnableConfig = None
+) -> str:
+    """
+    Performs web searches using the WBG Google Search API.
+    
+    Args:
+        search_queries (List[str]): List of search queries to process
+        num_results (int): Number of results to return per query (default: 5)
+        
+    Returns:
+        str: A formatted string of search results
+    """
+    # Get search results
+    search_results = await wbg_google_search_async(search_queries, num_results=num_results)
+    
+    # Format the results for output
     return deduplicate_and_format_sources(search_results, max_tokens_per_source=4000, deduplication_strategy="keep_first")
 
 

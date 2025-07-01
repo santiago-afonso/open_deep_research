@@ -5,7 +5,8 @@ import uuid
 import pytest
 import asyncio
 from pydantic import BaseModel, Field
-from langchain.chat_models import init_chat_model
+from langchain_community.chat_models import init_chat_model
+from open_deep_research.api_adapter import init_authenticated_chat_model
 from langsmith import testing as t
 from rich.console import Console
 from rich.panel import Panel
@@ -43,7 +44,7 @@ def get_evaluation_llm(eval_model=None):
     # Use provided model, then environment variable, then default
     model_to_use = eval_model or os.environ.get("EVAL_MODEL", "anthropic:claude-3-7-sonnet-latest")
     
-    criteria_eval_llm = init_chat_model(model_to_use)
+    criteria_eval_llm = init_authenticated_chat_model(model_to_use)
     return criteria_eval_llm.with_structured_output(CriteriaGrade)
 
 RESPONSE_CRITERIA_SYSTEM_PROMPT = """
