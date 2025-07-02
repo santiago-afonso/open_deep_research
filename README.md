@@ -118,7 +118,35 @@ Open Deep Research is compatible with many different LLMs:
 pip install open-deep-research
 ```
 
-See [src/open_deep_research/graph.ipynb](src/open_deep_research/graph.ipynb) and [src/open_deep_research/multi_agent.ipynb](src/open_deep_research/multi_agent.ipynb) for example usage in a Jupyter notebook:
+#### Command Line Interface
+
+Open Deep Research includes a CLI for generating reports:
+
+```bash
+# Basic usage with multi-agent (default)
+odr --prompt prompt.txt --country "Angola"
+
+# Use graph-based workflow
+odr --prompt prompt.txt --country "Angola" --agent-type graph
+
+# Auto-accept the plan without review
+odr --prompt prompt.txt --country "Angola" --auto-accept-plan
+
+# Specify custom directories
+odr --prompt prompt.txt --country "Angola" --input-dir inputs --output-dir outputs
+```
+
+The CLI supports:
+- **Template substitution**: `{countryname}` in your prompt will be replaced with the country parameter
+- **Both implementations**: Choose between `multi-agent` (default) or `graph` with `--agent-type`
+- **Automatic plan acceptance**: Skip human review with `--auto-accept-plan`
+- **Custom directories**: Specify input and output directories
+
+Reports are saved as markdown files in the format: `{country}_Tax_Expenditure_Report.md`
+
+#### Jupyter Notebooks
+
+See [src/open_deep_research/graph.ipynb](src/open_deep_research/graph.ipynb) and [src/open_deep_research/multi_agent.ipynb](src/open_deep_research/multi_agent.ipynb) for example usage in Jupyter notebooks:
 
 ## Open Deep Research Implementations
 
@@ -171,6 +199,61 @@ You can customize the multi-agent implementation through several parameters:
 - `mcp_server_config`: Configuration for MCP servers (optional)
 - `mcp_prompt`: Additional instructions for using MCP tools (optional)
 - `mcp_tools_to_include`: Specific MCP tools to include (optional)
+
+## Configuration
+
+Open Deep Research supports flexible configuration through environment variables, configuration files, and code. Example configurations are provided in the `examples/` directory.
+
+### Default Configuration
+
+By default, Open Deep Research uses:
+- **Models**: OpenAI GPT-4o (`openai:gpt-4o`)
+- **Search API**: Tavily
+- **Max tokens**: Standard model defaults
+
+### Example Configurations
+
+Copy and customize the example files:
+
+```bash
+# For open-source setup
+cp examples/config.default.yaml my-config.yaml
+cp examples/.env.example .env
+
+# For WBG users  
+cp examples/config.wbg.yaml my-config.yaml
+```
+
+### Model Configuration
+
+Models are specified in `provider:model` format:
+
+```yaml
+# Examples
+planner_model: "openai:gpt-4o"
+writer_model: "anthropic:claude-3-sonnet-20240229"
+supervisor_model: "google_genai:gemini-2.5-pro"
+researcher_model: "groq:llama-3-8b-8192"
+```
+
+### WBG-Specific Configuration
+
+For World Bank Group users with access to private endpoints:
+
+```yaml
+# Enable all WBG defaults with one flag
+use_wbg_models: true
+wbg_max_tokens: 100000
+```
+
+Or set via environment variable:
+```bash
+export USE_WBG_MODELS=true
+```
+
+### Migration Guide
+
+If you're upgrading from a previous version, see [MIGRATION.md](MIGRATION.md) for detailed instructions on updating your configuration.
 
 ## MCP (Model Context Protocol) Support
 

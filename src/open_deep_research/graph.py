@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 from dotenv import load_dotenv
 from langchain_community.chat_models import init_chat_model
-from open_deep_research.api_adapter import init_authenticated_chat_model
+from open_deep_research.api_adapter import init_authenticated_chat_model, get_provider_from_model
 from open_deep_research.auth import AuthManager
 
 # Load environment variables
@@ -46,6 +46,19 @@ def _get_auth_manager_from_config(config: RunnableConfig) -> Optional[AuthManage
     """Helper to create AuthManager from configuration."""
     configurable = WorkflowConfiguration.from_runnable_config(config)
     return AuthManager(api_keys=configurable.api_keys) if configurable.api_keys else None
+
+
+def parse_model_string(model_string):
+    """
+    Parse a model string in the format "provider:model" or just "model".
+    Returns (provider, model_name).
+    """
+    if ":" in model_string:
+        provider, model_name = model_string.split(":", 1)
+    else:
+        provider = get_provider_from_model(model_string)
+        model_name = model_string
+    return provider, model_name
 
 ## Nodes -- 
 
@@ -91,9 +104,11 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
         report_structure = str(report_structure)
 
     # Set writer model (model used for query writing)
-    writer_provider = get_config_value(configurable.writer_provider)
-    writer_model_name = get_config_value(configurable.writer_model)
+    writer_model_full = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
+    
+    # Parse provider from model string
+    writer_provider, writer_model_name = parse_model_string(writer_model_full)
     writer_model = init_authenticated_chat_model(model=writer_model_name, model_provider=writer_provider, auth_manager=auth_manager, config=config, model_kwargs=writer_model_kwargs) 
     structured_llm = writer_model.with_structured_output(Queries)
 
@@ -119,9 +134,11 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
     system_instructions_sections = report_planner_instructions.format(topic=topic, report_organization=report_structure, context=source_str, feedback=feedback)
 
     # Set the planner
-    planner_provider = get_config_value(configurable.planner_provider)
-    planner_model = get_config_value(configurable.planner_model)
+    planner_model_full = get_config_value(configurable.planner_model)
     planner_model_kwargs = get_config_value(configurable.planner_model_kwargs or {})
+    
+    # Parse provider from model string
+    planner_provider, planner_model = parse_model_string(planner_model_full)
 
     # Report planner instructions
     planner_message = """Generate the sections of the report. Your response must include a 'sections' field containing a list of sections. 
@@ -229,9 +246,9 @@ async def generate_queries(state: SectionState, config: RunnableConfig):
     number_of_queries = configurable.number_of_queries
 
     # Generate queries 
-    writer_provider = get_config_value(configurable.writer_provider)
-    writer_model_name = get_config_value(configurable.writer_model)
+    writer_model_full = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
+    writer_provider, writer_model_name = parse_model_string(writer_model_full)
     writer_model = init_authenticated_chat_model(model=writer_model_name, model_provider=writer_provider, auth_manager=auth_manager, config=config, model_kwargs=writer_model_kwargs) 
     structured_llm = writer_model.with_structured_output(Queries)
 
@@ -313,9 +330,9 @@ async def write_section(state: SectionState, config: RunnableConfig) -> Command[
                                                              section_content=section.content)
 
     # Generate section  
-    writer_provider = get_config_value(configurable.writer_provider)
-    writer_model_name = get_config_value(configurable.writer_model)
+    writer_model_full = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
+    writer_provider, writer_model_name = parse_model_string(writer_model_full)
     writer_model = init_authenticated_chat_model(model=writer_model_name, model_provider=writer_provider, auth_manager=auth_manager, config=config, model_kwargs=writer_model_kwargs) 
 
     section_content = await writer_model.ainvoke([SystemMessage(content=section_writer_instructions),
@@ -335,9 +352,9 @@ async def write_section(state: SectionState, config: RunnableConfig) -> Command[
                                                                                number_of_follow_up_queries=configurable.number_of_queries)
 
     # Use planner model for reflection
-    planner_provider = get_config_value(configurable.planner_provider)
-    planner_model = get_config_value(configurable.planner_model)
+    planner_model_full = get_config_value(configurable.planner_model)
     planner_model_kwargs = get_config_value(configurable.planner_model_kwargs or {})
+    planner_provider, planner_model = parse_model_string(planner_model_full)
 
     if planner_model == "claude-3-7-sonnet-latest":
         # Allocate a thinking budget for claude-3-7-sonnet-latest as the planner model
@@ -398,9 +415,9 @@ async def write_final_sections(state: SectionState, config: RunnableConfig):
     system_instructions = final_section_writer_instructions.format(topic=topic, section_name=section.name, section_topic=section.description, context=completed_report_sections)
 
     # Generate section  
-    writer_provider = get_config_value(configurable.writer_provider)
-    writer_model_name = get_config_value(configurable.writer_model)
+    writer_model_full = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
+    writer_provider, writer_model_name = parse_model_string(writer_model_full)
     writer_model = init_authenticated_chat_model(model=writer_model_name, model_provider=writer_provider, auth_manager=auth_manager, config=config, model_kwargs=writer_model_kwargs) 
     
     section_content = await writer_model.ainvoke([SystemMessage(content=system_instructions),

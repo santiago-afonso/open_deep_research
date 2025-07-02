@@ -36,7 +36,7 @@ class WBGChatModel(SimpleChatModel):
     reasoning_effort: Optional[str] = Field(default=None)
     
     # Internal components
-    auth_manager: WBGAuthManager = Field(default_factory=WBGAuthManager, exclude=True)
+    auth_manager: Optional[WBGAuthManager] = Field(default=None, exclude=True)
     http_client: httpx.Client = Field(default_factory=httpx.Client, exclude=True)
 
     @property
@@ -78,6 +78,10 @@ class WBGChatModel(SimpleChatModel):
         # Get a valid Bearer Token
         try:
             logger.debug("Obtaining authentication token...")
+            if not self.auth_manager:
+                # Create a default WBGAuthManager if none provided
+                self.auth_manager = WBGAuthManager()
+                logger.debug("Created default WBGAuthManager")
             bearer_token = self.auth_manager.get_bearer_token()
             logger.debug("Authentication successful")
         except Exception as e:
@@ -218,14 +222,16 @@ class WBGChatModel(SimpleChatModel):
 
 def create_wbg_llm(
     model_name: str = "o4-mini", 
-    max_tokens: int = 100000,
+    max_tokens: Optional[int] = None,
+    auth_manager: Optional[WBGAuthManager] = None,
     **kwargs: Any
 ) -> WBGChatModel:
     """Factory function to create a configured instance of WBG LLM.
     
     Args:
         model_name: Either "o4-mini" or "gpt-4.1"
-        max_tokens: Maximum tokens to generate (default: 100000 for o4-mini)
+        max_tokens: Maximum tokens to generate (will use config or defaults if not specified)
+        auth_manager: Optional WBGAuthManager instance for authentication
         **kwargs: Additional model-specific parameters
     
     Returns:
@@ -246,8 +252,12 @@ def create_wbg_llm(
     if model_name == "o4-mini" and "reasoning_effort" not in kwargs:
         kwargs["reasoning_effort"] = "medium"
     
+    # Pass max_tokens only if provided
+    if max_tokens is not None:
+        kwargs['max_tokens'] = max_tokens
+    
     return WBGChatModel(
-        api_url=api_url, 
-        max_tokens=max_tokens, 
+        api_url=api_url,
+        auth_manager=auth_manager,
         **kwargs
     )

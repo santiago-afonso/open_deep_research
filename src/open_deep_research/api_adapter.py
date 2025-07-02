@@ -95,6 +95,7 @@ def init_authenticated_chat_model(
     # Handle WBG models specially
     if provider == "wbg":
         from .wbg_llm_adapter import create_wbg_llm
+        from .wbg_auth_manager import WBGAuthManager
         
         # Get WBG-specific configuration
         max_tokens = kwargs.pop('max_tokens', None) or kwargs.pop('max_completion_tokens', None)
@@ -116,11 +117,21 @@ def init_authenticated_chat_model(
                 except:
                     pass
         
-        # Default to 100000 if not specified
+        # Use default max_tokens only if not specified anywhere
         max_tokens = max_tokens or 100000
         
+        # Create WBG auth manager - check if api_keys has WBG-specific auth info
+        wbg_auth_manager = None
+        if auth_manager and hasattr(auth_manager, 'api_keys') and 'wbg' in auth_manager.api_keys:
+            # In future, we could support custom WBG auth params from api_keys
+            # For now, we'll use the default WBGAuthManager
+            logger.info("Using configured WBG authentication")
+        
+        # Always create WBGAuthManager for now (maintains current behavior)
+        wbg_auth_manager = WBGAuthManager()
+        
         logger.info(f"Initializing WBG model '{model}' with max_tokens={max_tokens}")
-        return create_wbg_llm(model_name=model, max_tokens=max_tokens, **kwargs)
+        return create_wbg_llm(model_name=model, max_tokens=max_tokens, auth_manager=wbg_auth_manager, **kwargs)
     
     # For non-WBG models, use the standard flow
     # Use provided auth manager or fall back to global

@@ -1,0 +1,38 @@
+# WBG-specific configuration for Open Deep Research
+# This configuration uses World Bank Group's private LLM endpoints and search API
+
+# Enable WBG models - this will override model settings to use WBG endpoints
+use_wbg_models: true
+
+# WBG-specific settings
+wbg_max_tokens: 100000  # Maximum tokens for WBG models
+
+# Search API configuration
+search_api: wbg_google  # Use WBG's Google Search API
+
+# Note: When use_wbg_models is true, the following will be automatically set:
+# - planner_model: "wbg:o4-mini"
+# - writer_model: "wbg:o4-mini"
+# - supervisor_model: "wbg:o4-mini"
+# - researcher_model: "wbg:o4-mini"
+
+# Report structure can be customized as needed
+report_structure: |
+  1. Introduction (no more than 50 words)
+     - Brief overview of the topic's importance
+     - Aim for 1 structural element (either a list or table) that outlines the contents of the report
+   
+  2. Main Body Sections
+     - 5-7 comprehensive sections based on your research
+     - Each section should be detailed and well-researched
+     - Aim for at least 1 structural element per section (lists, tables, or blockquotes)
+     - Use varied structural elements throughout
+     - Make sure each section covers different aspects without repetition
+     
+  3. Conclusion
+     - Aim for 1 structural element (either a list or table) that distills the main body sections
+     - Provide a concise summary of the report
+
+# Additional search API configuration (optional)
+search_api_config:
+  num_results: 10  # Number of results per search query

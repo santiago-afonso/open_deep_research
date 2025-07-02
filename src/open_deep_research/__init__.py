@@ -2,6 +2,6 @@
 
 __version__ = "0.0.15"
 
-from .agent import run_multi_agent
+from .agent import run_multi_agent, run_workflow
 
-__all__ = ["run_multi_agent", "__version__"]
+__all__ = ["run_multi_agent", "run_workflow", "__version__"]

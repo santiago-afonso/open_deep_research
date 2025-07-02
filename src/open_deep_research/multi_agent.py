@@ -23,7 +23,126 @@ from open_deep_research.utils import (
     get_today_str,
     tavily_search,
     wbg_google_search,
+    perplexity_search as perplexity_search_func,
+    exa_search,
+    arxiv_search_async,
+    pubmed_search_async,
+    linkup_search,
+    google_search_async,
+    deduplicate_and_format_sources,
 )
+
+
+# Create tool wrappers for search functions that aren't already wrapped
+@tool
+async def perplexity_search(search_queries: List[str], config: RunnableConfig = None) -> str:
+    """Performs web searches using Perplexity AI.
+    
+    Args:
+        search_queries: List of search queries to process
+        
+    Returns:
+        Formatted string of search results
+    """
+    results = perplexity_search_func(search_queries)
+    return deduplicate_and_format_sources(results, max_tokens_per_source=4000)
+
+
+@tool
+async def exa_search_tool(
+    search_queries: List[str],
+    max_characters: Annotated[int, InjectedToolArg] = 1000,
+    num_results: Annotated[int, InjectedToolArg] = 5,
+    config: RunnableConfig = None
+) -> str:
+    """Performs semantic searches using Exa.
+    
+    Args:
+        search_queries: List of search queries to process
+        max_characters: Maximum characters per result
+        num_results: Number of results per query
+        
+    Returns:
+        Formatted string of search results
+    """
+    results = await exa_search(search_queries, max_characters=max_characters, num_results=num_results)
+    return deduplicate_and_format_sources(results, max_tokens_per_source=4000)
+
+
+@tool
+async def arxiv_search(
+    search_queries: List[str],
+    load_max_docs: Annotated[int, InjectedToolArg] = 5,
+    config: RunnableConfig = None
+) -> str:
+    """Searches for academic papers on ArXiv.
+    
+    Args:
+        search_queries: List of search queries
+        load_max_docs: Maximum documents to load per query
+        
+    Returns:
+        Formatted string of search results
+    """
+    results = await arxiv_search_async(search_queries, load_max_docs=load_max_docs)
+    return deduplicate_and_format_sources(results, max_tokens_per_source=4000)
+
+
+@tool
+async def pubmed_search(
+    search_queries: List[str],
+    top_k_results: Annotated[int, InjectedToolArg] = 5,
+    config: RunnableConfig = None
+) -> str:
+    """Searches for medical/biological papers on PubMed.
+    
+    Args:
+        search_queries: List of search queries
+        top_k_results: Number of results per query
+        
+    Returns:
+        Formatted string of search results
+    """
+    results = await pubmed_search_async(search_queries, top_k_results=top_k_results)
+    return deduplicate_and_format_sources(results, max_tokens_per_source=4000)
+
+
+@tool
+async def linkup_search_tool(
+    search_queries: List[str],
+    depth: Annotated[str, InjectedToolArg] = "standard",
+    config: RunnableConfig = None
+) -> str:
+    """Performs deep web searches using Linkup.
+    
+    Args:
+        search_queries: List of search queries
+        depth: Search depth (standard/deep)
+        
+    Returns:
+        Formatted string of search results
+    """
+    results = await linkup_search(search_queries, depth=depth)
+    return deduplicate_and_format_sources(results, max_tokens_per_source=4000)
+
+
+@tool
+async def google_search(
+    search_queries: List[str],
+    max_results: Annotated[int, InjectedToolArg] = 5,
+    config: RunnableConfig = None
+) -> str:
+    """Performs web searches using Google (requires API key or falls back to scraping).
+    
+    Args:
+        search_queries: List of search queries
+        max_results: Maximum results per query
+        
+    Returns:
+        Formatted string of search results
+    """
+    results = await google_search_async(search_queries, max_results=max_results, include_raw_content=False)
+    return deduplicate_and_format_sources(results, max_tokens_per_source=4000)
 
 
 ## Tools factory - will be initialized based on configuration
@@ -36,19 +155,26 @@ def get_search_tool(config: RunnableConfig):
     if search_api.lower() == "none":
         return None
 
-    # TODO: Configure other search functions as tools
-    if search_api.lower() == "tavily":
-        search_tool = tavily_search
-    elif search_api.lower() == "duckduckgo":
-        search_tool = duckduckgo_search
-    elif search_api.lower() == "wbg_google":
-        search_tool = wbg_google_search
-    else:
-        raise NotImplementedError(
-            f"The search API '{search_api}' is not yet supported in the multi-agent implementation. "
-            f"Currently, only Tavily/DuckDuckGo/WBG Google/None is supported. Please use the graph-based implementation in "
-            f"src/open_deep_research/graph.py for other search APIs, or set search_api to 'tavily', 'duckduckgo', 'wbg_google', or 'none'."
+    # Map search API to corresponding tool
+    search_tool_map = {
+        "tavily": tavily_search,
+        "duckduckgo": duckduckgo_search,
+        "wbg_google": wbg_google_search,
+        "perplexity": perplexity_search,
+        "exa": exa_search_tool,
+        "arxiv": arxiv_search,
+        "pubmed": pubmed_search,
+        "linkup": linkup_search_tool,
+        "googlesearch": google_search,
+    }
+    
+    search_api_lower = search_api.lower()
+    if search_api_lower not in search_tool_map:
+        raise ValueError(
+            f"Unknown search API '{search_api}'. Available options: {', '.join(search_tool_map.keys())} or 'none'"
         )
+    
+    search_tool = search_tool_map[search_api_lower]
 
     tool_metadata = {**(search_tool.metadata or {}), "type": "search"}
     search_tool.metadata = tool_metadata

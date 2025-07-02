@@ -34,7 +34,7 @@ class WorkflowConfiguration:
     """Configuration for the workflow/graph-based implementation (graph.py)."""
     # Common configuration
     report_structure: str = DEFAULT_REPORT_STRUCTURE
-    search_api: SearchAPI = SearchAPI.WBG_GOOGLE
+    search_api: SearchAPI = SearchAPI.TAVILY  # Default to Tavily for open-source
     search_api_config: Dict[str, Any] | None = None
     process_search_results: Literal["summarize", "split_and_rerank"] | None = None
     summarization_model_provider: str = "google_genai"  # Options: "anthropic", "openai", "google_genai", "groq", "deepseek", etc.
@@ -48,16 +48,22 @@ class WorkflowConfiguration:
     # Workflow-specific configuration
     number_of_queries: int = 2 # Number of search queries to generate per iteration
     max_search_depth: int = 2 # Maximum number of reflection + search iterations
-    planner_provider: str = "wbg"  # Options: "anthropic", "openai", "google_genai", "groq", "deepseek", "wbg", etc.
-    planner_model: str = "o4-mini"  # For WBG: "o4-mini", "gpt-4.1"
+    planner_model: str = "openai:gpt-4o"  # Options: "anthropic:claude-3", "openai:gpt-4o", "wbg:o4-mini", etc.
     planner_model_kwargs: Dict[str, Any] | None = None
-    writer_provider: str = "wbg"  # Options: "anthropic", "openai", "google_genai", "groq", "deepseek", "wbg", etc.
-    writer_model: str = "o4-mini"  # For WBG: "o4-mini", "gpt-4.1"
+    writer_model: str = "openai:gpt-4o"  # Options: "anthropic:claude-3", "openai:gpt-4o", "wbg:o4-mini", etc.
     writer_model_kwargs: Dict[str, Any] | None = None
     
     # WBG-specific configuration
-    use_wbg_models: bool = True  # Enable WBG private models
+    use_wbg_models: bool = False  # Enable WBG private models (default: False for open-source)
     wbg_max_tokens: int = 100000  # Max tokens for WBG models
+
+    def __post_init__(self):
+        """Apply WBG model defaults if use_wbg_models is True."""
+        if self.use_wbg_models:
+            # Override model settings to use WBG
+            self.planner_model = "wbg:o4-mini"
+            self.writer_model = "wbg:o4-mini"
+            self.search_api = SearchAPI.WBG_GOOGLE
 
     @classmethod
     def from_runnable_config(
@@ -78,7 +84,7 @@ class WorkflowConfiguration:
 class MultiAgentConfiguration:
     """Configuration for the multi-agent implementation (multi_agent.py)."""
     # Common configuration
-    search_api: SearchAPI = SearchAPI.WBG_GOOGLE
+    search_api: SearchAPI = SearchAPI.TAVILY  # Default to Tavily for open-source
     search_api_config: Dict[str, Any] | None = None
     process_search_results: Literal["summarize", "split_and_rerank"] | None = None
     summarization_model_provider: str = "google_genai"  # Options: "anthropic", "openai", "google_genai", "groq", "deepseek", etc.
@@ -90,17 +96,25 @@ class MultiAgentConfiguration:
     
     # Multi-agent specific configuration
     number_of_queries: int = 2 # Number of search queries to generate per section
-    supervisor_model: str = "wbg:o4-mini"  # Options: "google_genai:gemini-1.5-pro", "openai:gpt-4o", "wbg:o4-mini", etc.
-    researcher_model: str = "wbg:o4-mini"  # Options: "google_genai:gemini-1.5-flash", "openai:gpt-4o", "wbg:o4-mini", etc.
+    supervisor_model: str = "openai:gpt-4o"  # Options: "google_genai:gemini-1.5-pro", "openai:gpt-4o", "wbg:o4-mini", etc.
+    researcher_model: str = "openai:gpt-4o"  # Options: "google_genai:gemini-1.5-flash", "openai:gpt-4o", "wbg:o4-mini", etc.
     ask_for_clarification: bool = False # Whether to ask for clarification from the user
     
     # WBG-specific configuration
-    use_wbg_models: bool = True  # Enable WBG private models
+    use_wbg_models: bool = False  # Enable WBG private models (default: False for open-source)
     wbg_max_tokens: int = 100000  # Max tokens for WBG models
     # MCP server configuration
     mcp_server_config: Dict[str, Any] | None = None
     mcp_prompt: str | None = None
     mcp_tools_to_include: list[str] | None = None
+
+    def __post_init__(self):
+        """Apply WBG model defaults if use_wbg_models is True."""
+        if self.use_wbg_models:
+            # Override model settings to use WBG
+            self.supervisor_model = "wbg:o4-mini"
+            self.researcher_model = "wbg:o4-mini"
+            self.search_api = SearchAPI.WBG_GOOGLE
 
     @classmethod
     def from_runnable_config(

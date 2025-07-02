@@ -1,0 +1,57 @@
+# Default configuration for Open Deep Research
+# This configuration uses publicly available models and search APIs
+
+# Model configuration
+planner_model: "openai:gpt-4o"  # Can also use "anthropic:claude-3-sonnet", "google_genai:gemini-1.5-pro", etc.
+writer_model: "openai:gpt-4o"
+supervisor_model: "openai:gpt-4o"  # For multi-agent implementation
+researcher_model: "openai:gpt-4o"  # For multi-agent implementation
+
+# Optional model-specific configuration
+planner_model_kwargs:
+  temperature: 0.7
+writer_model_kwargs:
+  temperature: 0.8
+
+# Search API configuration
+search_api: tavily  # Options: tavily, duckduckgo, perplexity, exa, arxiv, pubmed, linkup, googlesearch
+
+# Search API specific configuration (optional)
+search_api_config:
+  max_results: 5  # For Tavily
+  topic: "general"  # For Tavily: "general", "news", or "finance"
+  # max_characters: 1000  # For Exa
+  # load_max_docs: 5  # For ArXiv
+  # top_k_results: 5  # For PubMed
+
+# Report generation settings
+number_of_queries: 2  # Number of search queries to generate per iteration
+max_search_depth: 2   # Maximum number of reflection + search iterations
+
+# Summarization model (for processing search results)
+summarization_model_provider: "google_genai"
+summarization_model: "gemini-2.5-flash"
+
+# Optional: API keys (if not using environment variables)
+# api_keys:
+#   openai: "your-openai-key"
+#   anthropic: "your-anthropic-key"
+#   google_genai: "your-google-key"
+#   tavily: "your-tavily-key"
+
+# Report structure
+report_structure: |
+  1. Introduction (no more than 50 words)
+     - Brief overview of the topic's importance
+     - Aim for 1 structural element (either a list or table) that outlines the contents of the report
+   
+  2. Main Body Sections
+     - 5-7 comprehensive sections based on your research
+     - Each section should be detailed and well-researched
+     - Aim for at least 1 structural element per section (lists, tables, or blockquotes)
+     - Use varied structural elements throughout
+     - Make sure each section covers different aspects without repetition
+     
+  3. Conclusion
+     - Aim for 1 structural element (either a list or table) that distills the main body sections
+     - Provide a concise summary of the report

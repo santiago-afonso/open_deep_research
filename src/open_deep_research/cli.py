@@ -9,13 +9,13 @@ from pathlib import Path
 
 from rich.console import Console
 
-from .agent import run_multi_agent
+from .agent import run_multi_agent, run_workflow
 
 
 def main() -> None:
     """Entry point for the ``odr`` command."""
     parser = argparse.ArgumentParser(
-        description="Run the multi-agent assistant to generate country-specific reports"
+        description="Run Open Deep Research to generate country-specific reports"
     )
     parser.add_argument(
         "--prompt",
@@ -33,6 +33,13 @@ def main() -> None:
         "--auto-accept-plan",
         action="store_true",
         help="Automatically accept the generated plan without confirmation",
+    )
+    parser.add_argument(
+        "--agent-type",
+        type=str,
+        choices=["multi-agent", "graph"],
+        default="multi-agent",
+        help="Choose the implementation type: multi-agent (default) or graph-based workflow",
     )
     parser.add_argument(
         "--input-dir",
@@ -88,8 +95,12 @@ def main() -> None:
             )
         
         # Generate the report
-        console.print(f"[blue]Generating report for {args.country}...[/blue]")
-        report = run_multi_agent(prompt, auto_accept_plan=args.auto_accept_plan)
+        console.print(f"[blue]Generating report for {args.country} using {args.agent_type} implementation...[/blue]")
+        
+        if args.agent_type == "multi-agent":
+            report = run_multi_agent(prompt, auto_accept_plan=args.auto_accept_plan)
+        else:  # graph
+            report = run_workflow(prompt, auto_accept_plan=args.auto_accept_plan)
         
         if not report:
             console.print("[red]Error: No report was generated.[/red]")
