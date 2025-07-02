@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, Optional, Union
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_community.chat_models import init_chat_model
+from langchain.chat_models import init_chat_model
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 

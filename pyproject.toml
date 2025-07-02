@@ -39,6 +39,7 @@ dependencies = [
     "langgraph-cli[inmem]>=0.3.1",
     "langsmith>=0.3.37",
     "msal>=1.24.0",
+    "loguru>=0.7.3",
 ]
 
 [project.optional-dependencies]

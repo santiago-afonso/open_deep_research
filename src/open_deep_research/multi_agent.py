@@ -9,7 +9,7 @@ from open_deep_research.auth import AuthManager
 # Load environment variables
 load_dotenv()
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool, tool
+from langchain_core.tools import BaseTool, tool, InjectedToolArg
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.types import Command, Send

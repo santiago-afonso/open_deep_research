@@ -1,7 +1,7 @@
 from typing import Literal, Optional
 
 from dotenv import load_dotenv
-from langchain_community.chat_models import init_chat_model
+from langchain.chat_models import init_chat_model
 from open_deep_research.api_adapter import init_authenticated_chat_model, get_provider_from_model
 from open_deep_research.auth import AuthManager
 
